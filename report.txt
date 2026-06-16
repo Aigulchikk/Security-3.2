@@ -1,0 +1,11 @@
+.
+├── lesson1
+│   ├── backup
+│   │   └── secret_plan_v1.txt
+│   ├── docs
+│   │   └── secret_plan.txt
+│   ├── evidence.log
+│   └── src
+└── report.txt
+
+5 directories, 4 files
