@@ -1,1 +1,4 @@
-python-dotenv==1.2.2
+python-dotenv==1.2.1
+fastapi
+uvicorn
+pydantic[email]
