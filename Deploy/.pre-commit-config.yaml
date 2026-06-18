@@ -3,7 +3,7 @@ repos:
     hooks:
       - id: pip-audit
         name: pip-audit
-        entry: pip-audit -r C:/Users/kamil/Desktop/projects/Security-3.2/Deploy/requirements.txt
+        entry: pip-audit -r C:/Users/kamil/Desktop/projects/Security-3.2/requirements.txt
         language: system
         files: requirements.txt
         pass_filenames: false
