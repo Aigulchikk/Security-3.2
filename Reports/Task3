@@ -1,0 +1,5 @@
+## 1. Команду запуска python3 main.py, Вывод программы: "System started. Secret hash: MyS
+![alt text](./Images/3(1).jpg "System started")
+
+## 2. Вывод команды ls -la, подтверждающий наличие файла .env (которого нет на GitHub).
+![alt text](./Images/3(2).jpg "files")

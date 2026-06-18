@@ -1,0 +1,10 @@
+repos:
+  - repo: local
+    hooks:
+      - id: pip-audit
+        name: pip-audit
+        entry: pip-audit -r C:/Users/kamil/Desktop/projects/Security-3.2/Deploy/requirements.txt
+        language: system
+        files: requirements.txt
+        pass_filenames: false
+        always_run: true
