@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Доска комментариев</title>
+</head>
+<body>
+    <h1>Доска комментариев</h1>
+
+    <form method="post" action="/comment">
+        <textarea name="comment" placeholder="Напишите что-нибудь..."></textarea>
+        <br>
+        <button type="submit">Отправить</button>
+    </form>
+
+    <hr>
+
+    <h2>Комментарии</h2>
+    {% for comment in comments %}
+        <div>{{ comment|safe }}</div>
+    {% endfor %}
+</body>
+</html>
