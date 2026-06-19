@@ -1,10 +1,13 @@
 import os
 import uuid
-from fastapi import FastAPI, Request, Form, HTTPException, Depends, Query
+import shutil
+import filetype
+from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException, Depends, Query
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi.responses import RedirectResponse, JSONResponse, FileResponse
 import bleach
 from starlette.middleware.base import BaseHTTPMiddleware
+
 
 app = FastAPI(title="XSS Demo + RBAC", version="1.0")
 
@@ -29,12 +32,14 @@ users_db = {
 }
 
 files_db = [
-    {"id": 1, "filename": "report_alice.pdf", "owner": "alice", "size": 1024},
-    {"id": 2, "filename": "photo_bob.jpg", "owner": "bob", "size": 2048},
-    {"id": 3, "filename": "admin_keys.txt", "owner": "admin", "size": 512},
+    {"id": 1, "filename": "report_alice.pdf", "owner": "alice", "size": 1024, "path": "storage/report_alice.pdf"},
+    {"id": 2, "filename": "photo_bob.jpg", "owner": "bob", "size": 2048, "path": "storage/photo_bob.jpg"},
+    {"id": 3, "filename": "admin_keys.txt", "owner": "admin", "size": 512, "path": "storage/admin_keys.txt"},
 ]
 
 sessions = {}
+
+MAX_FILE_SIZE = 2 * 1024 * 1024
 
 def get_current_user(session_id: str = Query(...)):
     username = sessions.get(session_id)
@@ -112,3 +117,55 @@ def delete_file(file_id: int, session_id: str = Query(...)):
     file = get_file_secure(file_id, current_user)
     files_db.remove(file)
     return {"msg": f"File {file['id']} deleted"}
+
+@app.post("/files/upload")
+async def upload_file(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user)
+):
+    total_size = 0
+    await file.seek(0)
+    chunk = await file.read(1024 * 1024)  # 1 MB
+    while chunk:
+        total_size += len(chunk)
+        if total_size > MAX_FILE_SIZE:
+            raise HTTPException(413, "File too large (max 2 MB)")
+        chunk = await file.read(1024 * 1024)
+
+    await file.seek(0)
+    head = await file.read(2048)
+    kind = filetype.guess(head)
+    
+    if not kind or kind.mime not in ["image/jpeg", "image/png"]:
+        raise HTTPException(400, "Only JPEG and PNG images are allowed")
+    
+    await file.seek(0)
+    extension = kind.extension
+    physical_name = f"{uuid.uuid4()}.{extension}"
+    physical_path = os.path.join("storage", physical_name)
+
+    with open(physical_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    new_file = {
+        "id": len(files_db) + 1,
+        "filename": file.filename,
+        "owner": current_user["username"],
+        "size": total_size,
+        "path": physical_path
+    }
+    files_db.append(new_file)
+    
+    return {"msg": "File uploaded", "file_id": new_file["id"]}
+
+@app.get("/files/{file_id}/download")
+def download_file(file_id: int, current_user: dict = Depends(get_current_user)):
+    file = get_file_secure(file_id, current_user)
+    if not os.path.exists(file["path"]):
+        raise HTTPException(404, "File not found on server")
+    return FileResponse(
+        path=file["path"],
+        filename=file["filename"],
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f"attachment; filename={file['filename']}"}
+    )
