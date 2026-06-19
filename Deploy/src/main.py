@@ -4,12 +4,22 @@ import shutil
 import filetype
 from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException, Depends, Query
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import RedirectResponse, JSONResponse, FileResponse
+from fastapi.responses import RedirectResponse, Response, JSONResponse, FileResponse
 import bleach
 from starlette.middleware.base import BaseHTTPMiddleware
+from cryptography.fernet import Fernet
+from dotenv import load_dotenv
 
 
 app = FastAPI(title="XSS Demo + RBAC", version="1.0")
+
+load_dotenv()
+
+ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
+if not ENCRYPTION_KEY:
+    raise ValueError("ENCRYPTION_KEY is not set in .env")
+
+cipher = Fernet(ENCRYPTION_KEY.encode())
 
 class CSPMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
@@ -32,9 +42,9 @@ users_db = {
 }
 
 files_db = [
-    {"id": 1, "filename": "report_alice.pdf", "owner": "alice", "size": 1024, "path": "storage/report_alice.pdf"},
-    {"id": 2, "filename": "photo_bob.jpg", "owner": "bob", "size": 2048, "path": "storage/photo_bob.jpg"},
-    {"id": 3, "filename": "admin_keys.txt", "owner": "admin", "size": 512, "path": "storage/admin_keys.txt"},
+    {"id": 1, "filename": "report_alice.pdf", "owner": "alice", "size": 1024, "path": "storage/report_alice.pdf", "is_encrypted": False},
+    {"id": 2, "filename": "photo_bob.jpg", "owner": "bob", "size": 2048, "path": "storage/photo_bob.jpg", "is_encrypted": False},
+    {"id": 3, "filename": "admin_keys.txt", "owner": "admin", "size": 512, "path": "storage/admin_keys.txt", "is_encrypted": False},
 ]
 
 sessions = {}
@@ -121,11 +131,12 @@ def delete_file(file_id: int, session_id: str = Query(...)):
 @app.post("/files/upload")
 async def upload_file(
     file: UploadFile = File(...),
+    encrypt: bool = False,
     current_user: dict = Depends(get_current_user)
 ):
     total_size = 0
     await file.seek(0)
-    chunk = await file.read(1024 * 1024)  # 1 MB
+    chunk = await file.read(1024 * 1024)
     while chunk:
         total_size += len(chunk)
         if total_size > MAX_FILE_SIZE:
@@ -135,37 +146,71 @@ async def upload_file(
     await file.seek(0)
     head = await file.read(2048)
     kind = filetype.guess(head)
-    
-    if not kind or kind.mime not in ["image/jpeg", "image/png"]:
-        raise HTTPException(400, "Only JPEG and PNG images are allowed")
+    if kind is None:
+        allowed = True
+        mime = "text/plain"
+    elif kind.mime in ["image/jpeg", "image/png"]:
+        allowed = True
+        mime = kind.mime
+    else:
+        allowed = False
+
+    if not allowed:
+        raise HTTPException(400, "Only JPEG, PNG and TXT files are allowed")        
     
     await file.seek(0)
-    extension = kind.extension
+    file_data = await file.read()
+
+    if encrypt:
+        encrypted_data = cipher.encrypt(file_data)
+        is_encrypted = True
+    else:
+        encrypted_data = file_data
+        is_encrypted = False
+
+    if kind is not None:
+        extension = kind.extension
+    else:
+        extension = "txt"
+
     physical_name = f"{uuid.uuid4()}.{extension}"
     physical_path = os.path.join("storage", physical_name)
 
     with open(physical_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+        f.write(encrypted_data)
 
     new_file = {
         "id": len(files_db) + 1,
         "filename": file.filename,
         "owner": current_user["username"],
         "size": total_size,
-        "path": physical_path
+        "path": physical_path,
+        "is_encrypted": is_encrypted
     }
     files_db.append(new_file)
     
-    return {"msg": "File uploaded", "file_id": new_file["id"]}
+    return {"msg": "File uploaded", "file_id": new_file["id"], "encrypted": is_encrypted}
 
 @app.get("/files/{file_id}/download")
 def download_file(file_id: int, current_user: dict = Depends(get_current_user)):
     file = get_file_secure(file_id, current_user)
+
     if not os.path.exists(file["path"]):
         raise HTTPException(404, "File not found on server")
-    return FileResponse(
-        path=file["path"],
-        filename=file["filename"],
+
+    with open(file["path"], "rb") as f:
+        file_data = f.read()
+
+    if file["is_encrypted"]:
+        try:
+            file_data = cipher.decrypt(file_data)
+        except Exception as e:
+            raise HTTPException(500, f"Decryption failed: {str(e)}")
+    
+    return Response(
+        content=file_data,
         media_type="application/octet-stream",
-        headers={"Content-Disposition": f"attachment; filename={file['filename']}"}
+        headers={
+            "Content-Disposition": f"attachment; filename={file['filename']}"
+        }
     )
