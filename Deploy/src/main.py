@@ -2,6 +2,7 @@ import os
 import uuid
 import shutil
 import filetype
+import traceback
 from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException, Depends, Query
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse, Response, JSONResponse, FileResponse
@@ -9,9 +10,20 @@ import bleach
 from starlette.middleware.base import BaseHTTPMiddleware
 from cryptography.fernet import Fernet
 from dotenv import load_dotenv
+from src.logger_config import logger
 
 
 app = FastAPI(title="XSS Demo + RBAC", version="1.0")
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled error: {str(exc)}")
+    logger.error(traceback.format_exc())
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "We are sorry, something went wrong."}
+    )
+
 
 load_dotenv()
 
@@ -66,6 +78,7 @@ def get_file_secure(file_id: int, current_user: dict = Depends(get_current_user)
     is_admin = current_user["role"] == "admin"
     
     if not (is_owner or is_admin):
+        logger.warning(f"IDOR attempt: User {current_user['username']} tried to access file {file_id} owned by {file['owner']}")
         raise HTTPException(404, "File not found")
     
     return file
@@ -74,8 +87,10 @@ def get_file_secure(file_id: int, current_user: dict = Depends(get_current_user)
 def login(username: str = Form(...), password: str = Form(...)):
     user = users_db.get(username)
     if not user or user["password"] != password:
+        logger.warning(f"Failed login attempt for user: {username}")
         raise HTTPException(401, "Invalid credentials")
     
+    logger.info(f"User {username} logged in successfully")
     session_id = str(uuid.uuid4())
     sessions[session_id] = username
     return {"session_id": session_id}
@@ -214,3 +229,8 @@ def download_file(file_id: int, current_user: dict = Depends(get_current_user)):
             "Content-Disposition": f"attachment; filename={file['filename']}"
         }
     )
+
+@app.get("/cause_error")
+async def cause_error():
+    1 / 0
+    return {"msg": "You shouldn't see this"}
