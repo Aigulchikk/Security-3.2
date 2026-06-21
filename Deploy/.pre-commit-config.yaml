@@ -1,10 +1,7 @@
 repos:
-  - repo: local
+  - repo: https://github.com/PyCQA/bandit
+    rev: '1.7.10'
     hooks:
-      - id: pip-audit
-        name: pip-audit
-        entry: pip-audit -r C:/Users/kamil/Desktop/projects/Security-3.2/requirements.txt
-        language: system
-        files: requirements.txt
+      - id: bandit
+        args: ["-r", "Deploy/src", "-ll"]
         pass_filenames: false
-        always_run: true
