@@ -4,3 +4,4 @@ repos:
     hooks:
       - id: bandit
         args: ["-r", "Deploy/src", "-ll"]
+        pass_filenames: false
